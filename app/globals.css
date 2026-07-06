@@ -1,0 +1,22 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-bg text-text font-body antialiased;
+}
+
+a {
+  @apply transition-colors;
+}
+
+input,
+textarea,
+select,
+button {
+  @apply font-body;
+}
