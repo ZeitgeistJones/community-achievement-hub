@@ -9,6 +9,7 @@ import {
 } from "wagmi";
 import { parseUnits } from "viem";
 import { PermanentWarningModal } from "./PermanentWarningModal";
+import { OddsConfigPanel } from "./OddsConfigPanel";
 import { signAndBustCache } from "@/lib/adminAuth";
 import {
   ACHIEVEMENT_REGISTRY_ADDRESS,
@@ -413,6 +414,12 @@ function ManageRow({
           {a.maxSupply > 0n ? ` / ${a.maxSupply.toString()}` : ""}
         </span>
       </div>
+
+      <OddsConfigPanel
+        achievement={a}
+        allAchievements={allAchievements}
+        inputClass={inputClass}
+      />
     </details>
   );
 }
