@@ -8,9 +8,11 @@
 //       Authorization: `Bearer ${process.env.REPORT_SECRET}`,
 //       "Content-Type": "application/json",
 //     },
-//     body: JSON.stringify({ wallet, appId: "coveragekit", key: "first_scan" }),
+//     body: JSON.stringify({ wallet, appId: "build-report", key: "first_scan" }),
 //   });
 //
+// If an odds config exists for (appId, key), a weighted random roll picks
+// which achievement the wallet actually earns — the caller never knows.
 // Deliberately NO CORS headers here — a browser must never hold the secret.
 
 import { NextResponse } from "next/server";
@@ -23,6 +25,7 @@ import {
 } from "@/lib/contracts";
 import { getRedis } from "@/lib/redis";
 import { recordEarned } from "@/lib/earned";
+import { getOddsConfig, rollOutcome } from "@/lib/oddsConfig";
 
 export async function POST(request: Request) {
   try {
@@ -66,42 +69,68 @@ export async function POST(request: Request) {
     }
 
     const achievements = await getAllAchievements();
-    const achievement = achievements.find(
+
+    // Validate the reported (appId, key) exists and is active.
+    const reportedAchievement = achievements.find(
       (a) => a.appId === appId && a.key === key
     );
-    if (!achievement) {
+    if (!reportedAchievement) {
       return NextResponse.json(
         { error: `No achievement found for ${appId}/${key}` },
         { status: 404 }
       );
     }
-    if (!achievement.active) {
+    if (!reportedAchievement.active) {
       return NextResponse.json(
         { error: "This achievement is not currently claimable" },
         { status: 404 }
       );
     }
 
-    // Idempotency: if the badge is already on-chain, there is nothing to do.
+    // Random-chance roll: check if there's an odds config for this key.
+    // If yes, roll and potentially award a different achievement instead.
+    // If no config, fall through and award the reported key directly.
+    let targetAchievement = reportedAchievement;
+
+    const oddsConfig = await getOddsConfig(appId, key);
+    if (oddsConfig) {
+      const rolledKey = rollOutcome(oddsConfig.outcomes);
+      if (rolledKey !== key) {
+        const alternate = achievements.find(
+          (a) => a.appId === appId && a.key === rolledKey && a.active
+        );
+        if (alternate) {
+          targetAchievement = alternate;
+        } else {
+          // Rolled outcome doesn't exist or is inactive — fall back to reported key.
+          // Log server-side so admin knows the odds config has a stale reference.
+          console.warn(
+            `odds roll: outcome key "${rolledKey}" for ${appId}/${key} not found or inactive — falling back to reported key`
+          );
+        }
+      }
+    }
+
+    // Idempotency: if the target badge is already on-chain, nothing to do.
     const client = getPublicClient();
     const alreadyClaimed = await client.readContract({
       address: ACHIEVEMENT_BADGE_ADDRESS,
       abi: achievementBadgeAbi,
       functionName: "hasClaimed",
-      args: [BigInt(achievement.id), wallet],
+      args: [BigInt(targetAchievement.id), wallet],
     });
     if (alreadyClaimed) {
       return NextResponse.json({
         ok: true,
-        achievementId: achievement.id,
+        achievementId: targetAchievement.id,
         alreadyClaimed: true,
       });
     }
 
-    const result = await recordEarned(wallet, achievement.id);
+    const result = await recordEarned(wallet, targetAchievement.id);
     return NextResponse.json({
       ok: true,
-      achievementId: achievement.id,
+      achievementId: targetAchievement.id,
       alreadyEarned: result === "alreadyEarned",
     });
   } catch (e) {
