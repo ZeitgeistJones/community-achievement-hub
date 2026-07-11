@@ -75,6 +75,9 @@ export async function POST(request: Request) {
       (a) => a.appId === appId && a.key === key
     );
     if (!reportedAchievement) {
+      console.log(
+        `[report] No achievement found for appId/key: ${appId}/${key}`
+      );
       return NextResponse.json(
         { error: `No achievement found for ${appId}/${key}` },
         { status: 404 }
