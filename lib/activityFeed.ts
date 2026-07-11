@@ -52,6 +52,49 @@ function blockRanges(
   return ranges;
 }
 
+async function fetchClaimedLogs(
+  publicClient: PublicClient,
+  from: bigint,
+  to: bigint
+) {
+  return publicClient.getLogs({
+    address: ACHIEVEMENT_BADGE_ADDRESS,
+    event: claimedEvent,
+    fromBlock: from,
+    toBlock: to,
+  });
+}
+
+async function fetchPaidLogs(
+  publicClient: PublicClient,
+  from: bigint,
+  to: bigint
+) {
+  return publicClient.getLogs({
+    address: ACHIEVEMENT_BADGE_ADDRESS,
+    event: paidEvent,
+    fromBlock: from,
+    toBlock: to,
+  });
+}
+
+async function fetchShortfallLogs(
+  publicClient: PublicClient,
+  from: bigint,
+  to: bigint
+) {
+  return publicClient.getLogs({
+    address: ACHIEVEMENT_BADGE_ADDRESS,
+    event: shortfallEvent,
+    fromBlock: from,
+    toBlock: to,
+  });
+}
+
+type ClaimedLogs = Awaited<ReturnType<typeof fetchClaimedLogs>>;
+type PaidLogs = Awaited<ReturnType<typeof fetchPaidLogs>>;
+type ShortfallLogs = Awaited<ReturnType<typeof fetchShortfallLogs>>;
+
 async function getLogsInChunks(
   publicClient: PublicClient,
   fromBlock: bigint,
@@ -59,39 +102,23 @@ async function getLogsInChunks(
   maxLogs: number
 ) {
   const ranges = blockRanges(fromBlock, toBlock, LOG_CHUNK_SIZE).reverse();
-  const claimed: Awaited<ReturnType<PublicClient["getLogs"]>> = [];
-  const paid: Awaited<ReturnType<PublicClient["getLogs"]>> = [];
-  const shortfall: Awaited<ReturnType<PublicClient["getLogs"]>> = [];
+  const claimed: ClaimedLogs = [];
+  const paid: PaidLogs = [];
+  const shortfall: ShortfallLogs = [];
 
   for (let i = 0; i < ranges.length; i += CHUNK_CONCURRENCY) {
     const batch = ranges.slice(i, i + CHUNK_CONCURRENCY);
-    const results = await Promise.all(
-      batch.flatMap(({ fromBlock: from, toBlock: to }) => [
-        publicClient.getLogs({
-          address: ACHIEVEMENT_BADGE_ADDRESS,
-          event: claimedEvent,
-          fromBlock: from,
-          toBlock: to,
-        }),
-        publicClient.getLogs({
-          address: ACHIEVEMENT_BADGE_ADDRESS,
-          event: paidEvent,
-          fromBlock: from,
-          toBlock: to,
-        }),
-        publicClient.getLogs({
-          address: ACHIEVEMENT_BADGE_ADDRESS,
-          event: shortfallEvent,
-          fromBlock: from,
-          toBlock: to,
-        }),
-      ])
-    );
 
-    for (let j = 0; j < batch.length; j++) {
-      claimed.push(...results[j * 3]);
-      paid.push(...results[j * 3 + 1]);
-      shortfall.push(...results[j * 3 + 2]);
+    for (const { fromBlock: from, toBlock: to } of batch) {
+      const [chunkClaimed, chunkPaid, chunkShortfall] = await Promise.all([
+        fetchClaimedLogs(publicClient, from, to),
+        fetchPaidLogs(publicClient, from, to),
+        fetchShortfallLogs(publicClient, from, to),
+      ]);
+
+      claimed.push(...chunkClaimed);
+      paid.push(...chunkPaid);
+      shortfall.push(...chunkShortfall);
     }
 
     if (claimed.length + paid.length + shortfall.length >= maxLogs) {
@@ -152,7 +179,7 @@ export async function getActivityFeed(): Promise<ActivityFeedItem[]> {
       transactionHash: log.transactionHash!,
       recipient: log.args.recipient!,
       achievementId: log.args.achievementId!.toString(),
-      detail: `Pool ran dry ΓÇö owed ${formatUnits(log.args.amount!, 18)} ${tokenSymbol(token)}`,
+      detail: `Pool ran dry — owed ${formatUnits(log.args.amount!, 18)} ${tokenSymbol(token)}`,
     });
   }
 
