@@ -58,6 +58,29 @@ export async function GET(request: Request) {
     const claimedSet = new Set(claimed.map((id) => Number(id)));
 
     const pendingIds = earnedIds.filter((id) => !claimedSet.has(id));
+    // #region agent log
+    fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "939fee",
+      },
+      body: JSON.stringify({
+        sessionId: "939fee",
+        runId: "pre-fix",
+        hypothesisId: "H7",
+        location: "app/api/pending/route.ts:GET",
+        message: "pending pipeline state",
+        data: {
+          wallet: wallet.toLowerCase(),
+          earnedIds,
+          claimedIds: [...claimedSet],
+          pendingIds,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (pendingIds.length === 0) {
       return withCors(request, NextResponse.json({ pending: [] }));
     }

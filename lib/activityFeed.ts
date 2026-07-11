@@ -65,6 +65,33 @@ async function getLogsInChunks(
 
   for (let i = 0; i < ranges.length; i += CHUNK_CONCURRENCY) {
     const batch = ranges.slice(i, i + CHUNK_CONCURRENCY);
+    if (i === 0) {
+      // #region agent log
+      fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "939fee",
+        },
+        body: JSON.stringify({
+          sessionId: "939fee",
+          runId: "pre-fix",
+          hypothesisId: "H5",
+          location: "lib/activityFeed.ts:getLogsInChunks:firstBatch",
+          message: "first chunk batch ranges",
+          data: {
+            batchSize: batch.length,
+            firstFrom: batch[0]?.fromBlock.toString(),
+            firstTo: batch[0]?.toBlock.toString(),
+            firstSpan: batch[0]
+              ? (batch[0].toBlock - batch[0].fromBlock).toString()
+              : null,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+    }
     const results = await Promise.all(
       batch.flatMap(({ fromBlock: from, toBlock: to }) => [
         publicClient.getLogs({
@@ -112,12 +139,75 @@ export async function getActivityFeed(): Promise<ActivityFeedItem[]> {
   const fromBlock =
     latest > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : 0n;
 
-  const { claimed, paid, shortfall } = await getLogsInChunks(
-    publicClient,
-    fromBlock,
-    latest,
-    MAX_EVENTS
-  );
+export async function getActivityFeed(): Promise<ActivityFeedItem[]> {
+  const publicClient = getPublicClient();
+  const latest = await publicClient.getBlockNumber();
+  const fromBlock =
+    latest > MAX_SCAN_BLOCKS ? latest - MAX_SCAN_BLOCKS : 0n;
+
+  // #region agent log
+  fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "939fee",
+    },
+    body: JSON.stringify({
+      sessionId: "939fee",
+      runId: "pre-fix",
+      hypothesisId: "H1-H5",
+      location: "lib/activityFeed.ts:getActivityFeed:entry",
+      message: "activity feed scan config",
+      data: {
+        logChunkSize: LOG_CHUNK_SIZE.toString(),
+        maxScanBlocks: MAX_SCAN_BLOCKS.toString(),
+        fromBlock: fromBlock.toString(),
+        latest: latest.toString(),
+        span: (latest - fromBlock).toString(),
+        chunkCount: blockRanges(fromBlock, latest, LOG_CHUNK_SIZE).length,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+
+  let claimed: Awaited<ReturnType<PublicClient["getLogs"]>> = [];
+  let paid: Awaited<ReturnType<PublicClient["getLogs"]>> = [];
+  let shortfall: Awaited<ReturnType<PublicClient["getLogs"]>> = [];
+
+  try {
+    const logs = await getLogsInChunks(
+      publicClient,
+      fromBlock,
+      latest,
+      MAX_EVENTS
+    );
+    claimed = logs.claimed;
+    paid = logs.paid;
+    shortfall = logs.shortfall;
+  } catch (e) {
+    // #region agent log
+    fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "939fee",
+      },
+      body: JSON.stringify({
+        sessionId: "939fee",
+        runId: "pre-fix",
+        hypothesisId: "H1-H5",
+        location: "lib/activityFeed.ts:getActivityFeed:error",
+        message: "getLogsInChunks failed",
+        data: {
+          error: e instanceof Error ? e.message.slice(0, 300) : "unknown",
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+    throw e;
+  }
 
   const feed: ActivityFeedItem[] = [];
 

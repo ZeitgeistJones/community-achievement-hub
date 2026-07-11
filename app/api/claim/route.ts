@@ -90,6 +90,28 @@ export async function POST(request: Request) {
 
     // Gate: the wallet must actually have earned this.
     const earned = await isEarned(wallet, achievementId);
+    // #region agent log
+    fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "939fee",
+      },
+      body: JSON.stringify({
+        sessionId: "939fee",
+        runId: "pre-fix",
+        hypothesisId: "H8",
+        location: "app/api/claim/route.ts:POST:earnedCheck",
+        message: "claim earned gate",
+        data: {
+          wallet: wallet.toLowerCase(),
+          achievementId,
+          earned,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     if (!earned) {
       return withCors(
         request,

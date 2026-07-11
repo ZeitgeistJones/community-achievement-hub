@@ -24,10 +24,50 @@ export function ActivityFeed() {
         if (!res.ok) {
           throw new Error(data.error ?? "Failed to load activity");
         }
+        // #region agent log
+        fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "939fee",
+          },
+          body: JSON.stringify({
+            sessionId: "939fee",
+            runId: "pre-fix",
+            hypothesisId: "H4",
+            location: "components/admin/ActivityFeed.tsx:fetch:ok",
+            message: "activity API client response",
+            data: {
+              itemCount: data.items?.length ?? 0,
+              scanBlocks: data.scanBlocks ?? null,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         setItems(data.items ?? []);
         setScanBlocks(data.scanBlocks ?? null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load activity");
+        const msg = e instanceof Error ? e.message : "Failed to load activity";
+        // #region agent log
+        fetch("http://127.0.0.1:7685/ingest/8d9fda70-28d1-4679-bc79-33127703700a", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Debug-Session-Id": "939fee",
+          },
+          body: JSON.stringify({
+            sessionId: "939fee",
+            runId: "pre-fix",
+            hypothesisId: "H4",
+            location: "components/admin/ActivityFeed.tsx:fetch:error",
+            message: "activity API client error",
+            data: { error: msg.slice(0, 300) },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
+        setError(msg);
       } finally {
         setLoading(false);
       }
