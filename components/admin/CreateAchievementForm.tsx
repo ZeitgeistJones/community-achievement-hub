@@ -45,6 +45,8 @@ export function CreateAchievementForm({
 }) {
   const { address } = useAccount();
   const [form, setForm] = useState(defaultForm);
+  const [pasteConfig, setPasteConfig] = useState("");
+  const [pasteError, setPasteError] = useState<string | null>(null);
   const [showCapWarning, setShowCapWarning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +103,57 @@ export function CreateAchievementForm({
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function loadPasteConfig() {
+    setPasteError(null);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(pasteConfig) as Record<string, unknown>;
+    } catch (e) {
+      setPasteError(e instanceof Error ? e.message : "Invalid JSON");
+      return;
+    }
+
+    if (
+      "tier" in parsed &&
+      parsed.tier !== 1 &&
+      parsed.tier !== 2 &&
+      parsed.tier !== 3
+    ) {
+      setPasteError("tier must be 1, 2, or 3");
+      return;
+    }
+    if (
+      "rewardToken" in parsed &&
+      parsed.rewardToken !== "none" &&
+      parsed.rewardToken !== "clawd" &&
+      parsed.rewardToken !== "eth"
+    ) {
+      setPasteError('rewardToken must be "none", "clawd", or "eth"');
+      return;
+    }
+    if ("maxSupply" in parsed && typeof parsed.maxSupply !== "string") {
+      setPasteError("maxSupply must be a string");
+      return;
+    }
+    if ("rewardAmount" in parsed && typeof parsed.rewardAmount !== "string") {
+      setPasteError("rewardAmount must be a string");
+      return;
+    }
+    if ("prerequisites" in parsed) {
+      if (
+        !Array.isArray(parsed.prerequisites) ||
+        !parsed.prerequisites.every((p) => typeof p === "number")
+      ) {
+        setPasteError("prerequisites must be an array of numbers");
+        return;
+      }
+    }
+
+    setForm((prev) => ({ ...prev, ...parsed }));
+    setPasteConfig("");
+    setPasteError(null);
   }
 
   function togglePrereq(id: number) {
@@ -168,6 +221,27 @@ export function CreateAchievementForm({
     <div className="grid gap-8 lg:grid-cols-2">
       <form onSubmit={handleSubmit} className="space-y-4">
         <h2 className="font-display text-xl">Create achievement</h2>
+
+        <details className="space-y-2">
+          <summary className="cursor-pointer text-sm text-text/60">
+            Paste config
+          </summary>
+          <textarea
+            rows={4}
+            value={pasteConfig}
+            onChange={(e) => setPasteConfig(e.target.value)}
+            className={inputClass}
+            placeholder='{"appId":"hub","key":"showman",...}'
+          />
+          <button
+            type="button"
+            onClick={loadPasteConfig}
+            className="rounded-lg border border-white/10 px-4 py-1.5 text-sm hover:bg-white/5"
+          >
+            Load
+          </button>
+          {pasteError && <p className="text-sm text-red-300">{pasteError}</p>}
+        </details>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1 text-sm">
