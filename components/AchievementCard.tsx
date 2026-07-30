@@ -37,7 +37,7 @@ export function AchievementCard({
         </div>
       )}
 
-      <div className="relative aspect-[4/3] w-full overflow-hidden bg-black/30">
+      <div className="relative aspect-square w-full overflow-hidden bg-black/30">
         {isHidden ? (
           <div className="flex h-full items-center justify-center">
             <div

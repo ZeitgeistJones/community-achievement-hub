@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useAccount,
   useSignMessage,
@@ -11,6 +11,7 @@ import { parseUnits } from "viem";
 import { LivePreviewCard } from "./LivePreviewCard";
 import { PermanentWarningModal } from "./PermanentWarningModal";
 import { signAndBustCache } from "@/lib/adminAuth";
+import { buildAuthMessage } from "@/lib/walletAuth";
 import {
   ACHIEVEMENT_REGISTRY_ADDRESS,
   CLAWD_TOKEN_ADDRESS,
@@ -36,6 +37,43 @@ const defaultForm = {
   active: true,
 };
 
+function cropToSquarePng(file: File): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const size = 1024;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Canvas not available"));
+        return;
+      }
+      const scale = Math.max(size / img.width, size / img.height);
+      const drawW = img.width * scale;
+      const drawH = img.height * scale;
+      const dx = (size - drawW) / 2;
+      const dy = (size - drawH) / 2;
+      ctx.drawImage(img, dx, dy, drawW, drawH);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) reject(new Error("Failed to export PNG"));
+          else resolve(blob);
+        },
+        "image/png"
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Failed to load image"));
+    };
+    img.src = objectUrl;
+  });
+}
+
 export function CreateAchievementForm({
   existingIds,
   onSuccess,
@@ -50,7 +88,10 @@ export function CreateAchievementForm({
   const [showCapWarning, setShowCapWarning] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [bustedTx, setBustedTx] = useState<`0x${string}` | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { writeContractAsync, data: txHash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
@@ -103,6 +144,61 @@ export function CreateAchievementForm({
 
   function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleImageFile(file: File) {
+    if (!address) {
+      setUploadError("Connect the owner wallet to upload");
+      return;
+    }
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const png = await cropToSquarePng(file);
+      const timestamp = Date.now();
+      const message = buildAuthMessage(timestamp);
+      const signature = await signMessageAsync({ message });
+
+      const body = new FormData();
+      body.append(
+        "file",
+        new File([png], "badge.png", { type: "image/png" })
+      );
+      body.append("address", address);
+      body.append("signature", signature);
+      body.append("timestamp", String(timestamp));
+
+      const res = await fetch("/api/admin/upload-image", {
+        method: "POST",
+        body,
+      });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        setUploadError(data.error ?? "Upload failed");
+        return;
+      }
+      update("imageURI", data.url);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function onImagePaste(e: React.ClipboardEvent) {
+    const files = e.clipboardData.files;
+    if (files.length === 0) return;
+    const file = files[0];
+    if (!file.type.startsWith("image/")) return;
+    e.preventDefault();
+    void handleImageFile(file);
+  }
+
+  function onImageDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    void handleImageFile(file);
   }
 
   function loadPasteConfig() {
@@ -312,15 +408,42 @@ export function CreateAchievementForm({
           </label>
         </div>
 
-        <label className="block space-y-1 text-sm">
-          <span className="text-text/60">Image URL</span>
-          <input
-            value={form.imageURI}
-            onChange={(e) => update("imageURI", e.target.value)}
-            className={inputClass}
-            placeholder="https://..."
-          />
-        </label>
+        <div className="space-y-2">
+          <span className="text-sm text-text/60">Badge image</span>
+          <div
+            tabIndex={0}
+            onPaste={onImagePaste}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onImageDrop}
+            onClick={() => !uploading && fileInputRef.current?.click()}
+            className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-white/20 bg-black/20 px-4 py-8 text-center text-sm text-text/60 hover:border-white/40"
+          >
+            {uploading
+              ? "Uploading…"
+              : "Paste, drop, or click to upload a square badge image"}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void handleImageFile(file);
+              }}
+            />
+          </div>
+          {uploadError && <p className="text-sm text-red-300">{uploadError}</p>}
+          <label className="block space-y-1 text-sm">
+            <span className="text-text/60">Image URL</span>
+            <input
+              value={form.imageURI}
+              onChange={(e) => update("imageURI", e.target.value)}
+              className={inputClass}
+              placeholder="https://..."
+            />
+          </label>
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="space-y-1 text-sm">
